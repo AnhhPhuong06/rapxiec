@@ -1,6 +1,6 @@
-# Build output
-build/
-DerivedData/
+# Build output (only at repository root)
+/build/
+/DerivedData/
 
 # Xcode user data
 xcuserdata/
