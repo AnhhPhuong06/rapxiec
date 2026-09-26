@@ -1,0 +1,73 @@
+workflows:
+  ios-unsigned-ipa:
+    name: Build iOS Unsigned IPA
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      vars:
+        XCODE_PROJECT: "Unity-iPhone.xcodeproj"
+        XCODE_SCHEME: "Unity-iPhone"
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Git LFS pull
+        script: |
+          git lfs install
+          git lfs pull
+
+      - name: Grant executable permissions
+        script: |
+          chmod -R +x .
+          chmod +x process_symbols.sh || true
+          chmod +x process_symbols_il2cpp.sh || true
+          chmod +x Il2CppOutputProject/IL2CPP/build/deploy_arm64/il2cpp || true
+          chmod +x Il2CppOutputProject/IL2CPP/build/deploy_arm64/il2cpp-compile || true
+          chmod +x Il2CppOutputProject/IL2CPP/build/deploy_arm64/bee_backend/mac-arm64/bee_backend || true
+
+      - name: Disable code signing in Xcode project
+        script: |
+          echo "Patching project.pbxproj to remove signing requirements..."
+          sed -i '' \
+            -e 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "";/g' \
+            -e 's/CODE_SIGN_IDENTITY\[sdk=iphoneos\*\] = "iPhone Developer";/CODE_SIGN_IDENTITY[sdk=iphoneos*] = "";/g' \
+            -e 's/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = "";/g' \
+            -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/g' \
+            -e 's/PROVISIONING_PROFILE = [^;]*;/PROVISIONING_PROFILE = "";/g' \
+            -e 's/PROVISIONING_PROFILE_SPECIFIER = [^;]*;/PROVISIONING_PROFILE_SPECIFIER = "";/g' \
+            "$XCODE_PROJECT/project.pbxproj"
+
+      - name: Fast Build Xcode (Skip dSYM & Indexing)
+        script: |
+          xcodebuild build \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "build/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            DEBUG_INFORMATION_FORMAT=dwarf \
+            GCC_GENERATE_DEBUGGING_SYMBOLS=NO
+
+      - name: Package Unsigned IPA
+        script: |
+          APP_PATH=$(find build/DerivedData/Build/Products -name "*.app" -not -path "*Tests*" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: Không tìm thấy file .app trong build/DerivedData!"
+            exit 1
+          fi
+          echo "Found app at: $APP_PATH"
+          mkdir -p build/Payload
+          cp -r "$APP_PATH" build/Payload/
+          cd build
+          zip -r -1 RapXiec-unsigned.ipa Payload
+          echo "Created RapXiec-unsigned.ipa successfully!"
+
+    artifacts:
+      - build/*.ipa
